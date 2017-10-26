@@ -1,7 +1,7 @@
-#Simple Multi-Protocol TCP Relay
+# Simple Multi-Protocol TCP Relay
 by Stephane Bedard, sbedard.code@gmail.com
 
-##Introduction
+## Introduction
 
 The Relay (as the Simple Multi-Protocol TCP Relay is hence forth referred to) allows two TCP networked applications to 
 communicate with each other when a direct communication is not possible, for example if the two applications are hosted
@@ -14,13 +14,13 @@ The Relay supports 3 basic modes of operation:
 - Client(s)/Server(s) mode with Multiplexing Server Adapter
 
 #
-##Supported OS
+## Supported OS
 - Compiled: Windows 10 64 bit 
 - Compiled and provided binary: Ubuntu 16.04.3 LTS (should work with most flavors of Linux)
 
 
 #
-##Glossary
+## Glossary
 
 Client: A connection that connects to the port assigned to a Host for the purpose of communicating with the Host.
 
@@ -37,7 +37,7 @@ to the Relay (Quit, Rename Host, List all Hosts, etc.). More details on the SBRP
 of this document.
 
 #
-##One to One Mode
+## One to One Mode
 
 One to One mode allows for traditional peer to peer communication between two applications. What one application
 transmits, the other receives and vice versa.
@@ -46,7 +46,7 @@ This is the default behavior when a single client connects to the assigned port 
 could be for example for a Telnet chat.
 
 #
-##One to Many Mode
+## One to Many Mode
 
 One to Many mode allows a Host connection to broadcast to all connected clients and for all the Clients to message the 
 Host connection. The clients do not see each others messages.
@@ -55,7 +55,7 @@ This is the default behavior when a multiple clients connects to the assigned po
 could be the host logging all data from multiple clients, with the capability of sending commands back to the clients.
 
 #
-##One to One Client/Server with simple Server Adapter
+## One to One Client/Server with simple Server Adapter
 
 Allows client/server TCP communication.
 
@@ -72,7 +72,7 @@ or not.
 More details can be found in the Server Adapter specifications.
 
 #
-##Client(s)/Server(s) mode with Multiplexing Server Adapter
+## Client(s)/Server(s) mode with Multiplexing Server Adapter
 
 Allows client/server TCP communication.
 
@@ -90,7 +90,7 @@ would be configured to be able to forward requests to a single IP address and po
 More details can be found in the Server Adapter specifications.
 
 #
-##Supported Protocols
+## Supported Protocols
 
 These protocols have been tested (or will be tested before release).
 
@@ -103,36 +103,36 @@ These protocols have been tested (or will be tested before release).
 - FTP
 
 #
-##Unsupported Protocols
+## Unsupported Protocols
 - HTTPS
 - TLS
 - UDP
 
 #
-##Limitations
+## Limitations
 - TCP packets containing more than 512 bytes of data in their data field will be split into multiple packets.
 - The Relay has no support for partial packet transmission, it will forward what it receives, even if it is corrupted.
 This is an unlikely scenario on Windows or Linux where there is a well implemented TCP stack.
 
 
 #
-##Compiling the Relay from GitHub source
+## Compiling the Relay from GitHub source
 
 TODO
 
 #
-##Running Automated Tests
+## Running Automated Tests
 
 TODO
 
 #
-##Starting the Relay
+## Starting the Relay
 
 TODO Windows
 TODO Linux
 
 #
-##Starting the Relay for client(s)/server(s) communication
+## Starting the Relay for client(s)/server(s) communication
 
 TODO Simple Server Adapter Application
 TODO Multiplexing Server Adapter Application
@@ -144,12 +144,12 @@ TODO Windows
 TODO Linux
 
 #
-##Server Adapter Specification
+## Server Adapter Specification
 TODO more details
-####Simple:
+#### Simple:
 
 
-####Multiplexing:
+#### Multiplexing:
 In short, the first 8 bytes of the TCP message, if the Server Adapter is active, are used as a client identifier.
 These identifying bytes are only "on the wire" between the Relay and the Server Adapter.
 
