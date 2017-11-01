@@ -12,22 +12,6 @@ import (
 	"strings"
 )
 
-// Configuration constants
-// Possible improvement is to move these to a cfg file instead of using global constants
-/*
-const (
-	HOST_PORT       = 8080
-	TIMEOUT_MINUTES = 5
-
-	CLIENT_PORT_MIN = 8081
-	CLIENT_PORT_MAX = 8999
-
-	USE_RELAY_PROTOCOL = true
-
-	RECEIVE_BUFFER_SIZE = 512
-)
-*/
-
 var cfg config.Cfg
 
 type RelayConn struct {
@@ -51,12 +35,13 @@ type DataPack struct {
 // - Manage any exit channels and signals
 // - Manage the graceful exiting of all goroutines, especially the closing of all OS/System connections.
 func main() {
-	cfg.Init()
 	mainLoop()
 }
 
 func mainLoop() {
 	fmt.Println("Starting Relay")
+
+	cfg.Init()
 
 	// Map used for managing the various hosts connected to the relay
 	relayConns := make(map[int]RelayConn)
@@ -171,6 +156,7 @@ func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn, op
 		}
 	}()
 
+	toHostChan := make(chan DataPack, cfg.ReceiveChanQueueSize)
 	clientErrChan := make(chan error)
 	// Create a client listener on the first available port within our defined port range
 	for p := cfg.ClientPortMin; p <= cfg.ClientPortMax; p++ {
@@ -183,7 +169,7 @@ func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn, op
 			host.op = sbrp.Add
 			connsModChan <- host
 			// Start accepting client connections for this host
-			go waitForClientConnections(l, p, host.id, host.useSbrp, connsModChan, clientErrChan)
+			go waitForClientConnections(l, p, host.id, host.useSbrp, toHostChan, connsModChan, clientErrChan)
 			break
 		}
 	}
@@ -226,6 +212,8 @@ func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn, op
 			case sbrp.Quit:
 				opChan <- sbrp.Quit
 			}
+		case recvData := <- toHostChan:
+			conn.Write(recvData.data)
 		case err := <-recvErrorChan:
 			fmt.Println("Host Error -> ", err.Error())
 			sbrp.ErrResp(conn, sbrp.CannotReceiveDataFromHost, host.useSbrp, err.Error())
@@ -256,7 +244,13 @@ func handleReceivedHostData(conn net.Conn, useSbrp bool, d DataPack) (op sbrp.Op
 
 // A function that waits for client connections on the assigned listener.
 // When a client connection is established, it will launch a new goroutine to handle said communication.
-func waitForClientConnections(l net.Listener, p int, idParent int, useSbrp bool, connsModChan chan RelayConn, errChan chan error) {
+func waitForClientConnections(	l net.Listener,
+								p int,
+								idParent int,
+								useSbrp bool,
+								toHostChan chan DataPack,
+								connsModChan chan RelayConn,
+								errChan chan error) {
 	connCount := 0
 	for {
 		connCount++
@@ -276,7 +270,7 @@ func waitForClientConnections(l net.Listener, p int, idParent int, useSbrp bool,
 		} else {
 			fmt.Println("Connection accepted, launching host handler.")
 			conn.SetReadDeadline(time.Now().Add(cfg.TimeoutMinutes * time.Minute))
-			go handleClientConnection(conn, connCount, idParent, useSbrp, connsModChan, errChan)
+			go handleClientConnection(conn, connCount, idParent, useSbrp, toHostChan, connsModChan, errChan)
 		}
 	}
 }
@@ -286,7 +280,13 @@ func waitForClientConnections(l net.Listener, p int, idParent int, useSbrp bool,
 // Receiving data from the Host
 // Sending data to the Host and exiting gracefully if the host is no longer connected
 // defer order: 1) Remove host from conn list, 2) Close connection
-func handleClientConnection(conn net.Conn, id int, idParent int, useSbrp bool, connsModChan chan RelayConn, errChan chan error) {
+func handleClientConnection(conn net.Conn,
+							id int,
+							idParent int,
+							useSbrp bool,
+							toHostChan chan DataPack,
+							connsModChan chan RelayConn,
+							errChan chan error) {
 	defer conn.Close()
 
 	// Struct containing any reference data for this connection
@@ -313,6 +313,7 @@ func handleClientConnection(conn net.Conn, id int, idParent int, useSbrp bool, c
 		select {
 		case recvData := <-recvChan:
 			fmt.Println("Data from client-> " + string(recvData.data))
+			toHostChan<-recvData
 		case err := <-recvErrorChan:
 			fmt.Println("Client Error -> ", err.Error())
 			errChan <- err
