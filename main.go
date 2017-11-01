@@ -27,6 +27,7 @@ type RelayConn struct {
 type DataPack struct {
 	data   []byte
 	length int
+	idSource int
 }
 
 // Main manages:
@@ -47,7 +48,7 @@ func mainLoop() {
 	relayConns := make(map[int]RelayConn)
 
 	opChan := make(chan sbrp.Op)
-	connsModChan := make(chan RelayConn)
+	hostListChan := make(chan RelayConn)
 
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(cfg.HostPort))
 	if err != nil {
@@ -55,7 +56,7 @@ func mainLoop() {
 		return
 	} else {
 		// waitForHostConnections() is launched in it's own goroutine so as to not block the channel message management
-		go waitForHostConnections(l, opChan, connsModChan)
+		go waitForHostConnections(l, opChan, hostListChan)
 	}
 
 	defer exit(l, relayConns)
@@ -65,7 +66,7 @@ func mainLoop() {
 	op := sbrp.Loop
 	for op == sbrp.Loop {
 		select {
-		case rc := <-connsModChan:
+		case rc := <-hostListChan:
 			switch rc.op {
 			case sbrp.Add:
 				connId++
@@ -105,7 +106,7 @@ func exit(l net.Listener, relayConnList map[int]RelayConn) {
 // Accepts new connections on the default HOST_PORT (8080 by default)
 // No SBRP protocol messages are returned over TCP at this level as the connection is not established.
 // Each attempted connection increments a counter which is then used as the Host connection identifier internally
-func waitForHostConnections(l net.Listener, op chan sbrp.Op, connsModChan chan RelayConn) {
+func waitForHostConnections(l net.Listener, op chan sbrp.Op, hostListChan chan RelayConn) {
 	connCount := 0
 	for {
 		connCount++
@@ -123,7 +124,7 @@ func waitForHostConnections(l net.Listener, op chan sbrp.Op, connsModChan chan R
 		} else {
 			fmt.Println("Connection accepted, launching host handler.")
 			conn.SetReadDeadline(time.Now().Add(cfg.TimeoutMinutes * time.Minute))
-			go handleHostConnection(conn, connCount, connsModChan, op)
+			go handleHostConnection(conn, connCount, hostListChan, op)
 		}
 	}
 }
@@ -133,7 +134,7 @@ func waitForHostConnections(l net.Listener, op chan sbrp.Op, connsModChan chan R
 // Receiving data from the Host
 // Sending data to the Host and exiting gracefully if the host is no longer connected
 // defer order: 1) Close client listener, 2) Remove host from conn list, 3) Close connection
-func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn, opChan chan sbrp.Op) {
+func handleHostConnection(conn net.Conn, id int, hostListChan chan RelayConn, opChan chan sbrp.Op) {
 	var err error
 	defer conn.Close()
 
@@ -143,10 +144,11 @@ func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn, op
 	host.useSbrp = cfg.UseRelayProtocol
 	host.id = id + time.Now().Nanosecond()
 	host.conn = &conn
+	host.op = sbrp.Add
 
 	defer func() {
 		host.op = sbrp.Remove
-		connsModChan <- host
+		hostListChan <- host
 	}()
 
 	var l net.Listener
@@ -156,7 +158,10 @@ func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn, op
 		}
 	}()
 
+	clientConns := make(map[int]RelayConn)
+
 	toHostChan := make(chan DataPack, cfg.ReceiveChanQueueSize)
+	clientListChan := make(chan RelayConn)
 	clientErrChan := make(chan error)
 	// Create a client listener on the first available port within our defined port range
 	for p := cfg.ClientPortMin; p <= cfg.ClientPortMax; p++ {
@@ -167,9 +172,9 @@ func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn, op
 			host.name = strconv.Itoa(p)
 			// inform the master goroutine that his host is ready
 			host.op = sbrp.Add
-			connsModChan <- host
+			hostListChan <- host
 			// Start accepting client connections for this host
-			go waitForClientConnections(l, p, host.id, host.useSbrp, toHostChan, connsModChan, clientErrChan)
+			go waitForClientConnections(l, p, host.id, host.useSbrp, toHostChan, clientListChan, clientErrChan)
 			break
 		}
 	}
@@ -201,6 +206,7 @@ func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn, op
 
 	go connRead(conn, recvChan, recvErrorChan)
 
+	connId := 0
 	// A loop that blocks until it received a message on an assigned channel and reacts to it.
 	doneMsg := sbrp.OkState
 	for doneMsg == sbrp.OkState {
@@ -211,15 +217,50 @@ func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn, op
 			switch op {
 			case sbrp.Quit:
 				opChan <- sbrp.Quit
+			case sbrp.SendToAllClients:
+				err := sendToAllClients(clientConns, recvData)
+				if err != nil {
+					fmt.Errorf(err.Error())
+				}
+			default:
+				err := sendToAllClients(clientConns, recvData)
+				if err != nil {
+					fmt.Errorf(err.Error())
+				}
 			}
 		case recvData := <- toHostChan:
+			fmt.Println("Data from client #" + strconv.Itoa(recvData.idSource) + "-> " + string(recvData.data))
 			conn.Write(recvData.data)
+
+		case rc := <-clientListChan:
+			switch rc.op {
+			case sbrp.Add:
+				connId++
+				rc.id = connId
+				clientConns[connId] = rc
+			case sbrp.Remove:
+				delete(clientConns, rc.id)
+			}
+
 		case err := <-recvErrorChan:
 			fmt.Println("Host Error -> ", err.Error())
 			sbrp.ErrResp(conn, sbrp.CannotReceiveDataFromHost, host.useSbrp, err.Error())
 			doneMsg = sbrp.CloseState
 		case err := <-clientErrChan:
 			sbrp.ErrResp(conn, sbrp.ClientClosureError, host.useSbrp, err.Error())
+		}
+	}
+	return
+}
+
+
+func sendToAllClients(clientConns map[int]RelayConn, data DataPack) (err error) {
+	for _, c := range clientConns {
+		conn := *c.conn
+		_, errTmp := conn.Write(data.data)
+		if errTmp != nil {
+			fmt.Println(c.idParent, c.id, c.port)
+			err = errTmp
 		}
 	}
 	return
@@ -249,7 +290,7 @@ func waitForClientConnections(	l net.Listener,
 								idParent int,
 								useSbrp bool,
 								toHostChan chan DataPack,
-								connsModChan chan RelayConn,
+								clientListChan chan RelayConn,
 								errChan chan error) {
 	connCount := 0
 	for {
@@ -270,7 +311,7 @@ func waitForClientConnections(	l net.Listener,
 		} else {
 			fmt.Println("Connection accepted, launching host handler.")
 			conn.SetReadDeadline(time.Now().Add(cfg.TimeoutMinutes * time.Minute))
-			go handleClientConnection(conn, connCount, idParent, useSbrp, toHostChan, connsModChan, errChan)
+			go handleClientConnection(conn, connCount, idParent, useSbrp, toHostChan, clientListChan, errChan)
 		}
 	}
 }
@@ -285,7 +326,7 @@ func handleClientConnection(conn net.Conn,
 							idParent int,
 							useSbrp bool,
 							toHostChan chan DataPack,
-							connsModChan chan RelayConn,
+							clientListChan chan RelayConn,
 							errChan chan error) {
 	defer conn.Close()
 
@@ -296,10 +337,13 @@ func handleClientConnection(conn net.Conn,
 	client.id = id
 	client.idParent = idParent
 	client.conn = &conn
+	client.op = sbrp.Add
+
+	clientListChan<-client
 
 	defer func() {
 		client.op = sbrp.Remove
-		connsModChan <- client
+		clientListChan <- client
 	}()
 
 	recvChan := make(chan DataPack, cfg.ReceiveChanQueueSize)
@@ -312,7 +356,7 @@ func handleClientConnection(conn net.Conn,
 	for doneMsg == sbrp.OkState {
 		select {
 		case recvData := <-recvChan:
-			fmt.Println("Data from client-> " + string(recvData.data))
+			recvData.idSource = client.id
 			toHostChan<-recvData
 		case err := <-recvErrorChan:
 			fmt.Println("Client Error -> ", err.Error())

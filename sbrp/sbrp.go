@@ -23,14 +23,14 @@ const (
 type Op int
 
 const (
-	Unknown Op = -1
-	Modify  Op = 0
-	Add     Op = 0 + iota
+	Unknown Op = -1 + iota
+	Add
 	Remove
 	Rename
 	ListConns
 	UseProtocol
 	Loop
+	SendToAllClients
 	Quit
 )
 
