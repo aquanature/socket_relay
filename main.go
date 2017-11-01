@@ -25,8 +25,8 @@ type RelayConn struct {
 }
 
 type DataPack struct {
-	data   []byte
-	length int
+	data     []byte
+	length   int
 	idSource int
 }
 
@@ -151,14 +151,9 @@ func handleHostConnection(conn net.Conn, id int, hostListChan chan RelayConn, op
 		hostListChan <- host
 	}()
 
-	var l net.Listener
-	defer func() {
-		if l != nil {
-			l.Close()
-		}
-	}()
-
 	clientConns := make(map[int]RelayConn)
+	var l net.Listener
+	defer exit(l, clientConns)
 
 	toHostChan := make(chan DataPack, cfg.ReceiveChanQueueSize)
 	clientListChan := make(chan RelayConn)
@@ -228,7 +223,7 @@ func handleHostConnection(conn net.Conn, id int, hostListChan chan RelayConn, op
 					fmt.Errorf(err.Error())
 				}
 			}
-		case recvData := <- toHostChan:
+		case recvData := <-toHostChan:
 			fmt.Println("Data from client #" + strconv.Itoa(recvData.idSource) + "-> " + string(recvData.data))
 			conn.Write(recvData.data)
 
@@ -252,7 +247,6 @@ func handleHostConnection(conn net.Conn, id int, hostListChan chan RelayConn, op
 	}
 	return
 }
-
 
 func sendToAllClients(clientConns map[int]RelayConn, data DataPack) (err error) {
 	for _, c := range clientConns {
@@ -285,13 +279,13 @@ func handleReceivedHostData(conn net.Conn, useSbrp bool, d DataPack) (op sbrp.Op
 
 // A function that waits for client connections on the assigned listener.
 // When a client connection is established, it will launch a new goroutine to handle said communication.
-func waitForClientConnections(	l net.Listener,
-								p int,
-								idParent int,
-								useSbrp bool,
-								toHostChan chan DataPack,
-								clientListChan chan RelayConn,
-								errChan chan error) {
+func waitForClientConnections(l net.Listener,
+	p int,
+	idParent int,
+	useSbrp bool,
+	toHostChan chan DataPack,
+	clientListChan chan RelayConn,
+	errChan chan error) {
 	connCount := 0
 	for {
 		connCount++
@@ -322,12 +316,12 @@ func waitForClientConnections(	l net.Listener,
 // Sending data to the Host and exiting gracefully if the host is no longer connected
 // defer order: 1) Remove host from conn list, 2) Close connection
 func handleClientConnection(conn net.Conn,
-							id int,
-							idParent int,
-							useSbrp bool,
-							toHostChan chan DataPack,
-							clientListChan chan RelayConn,
-							errChan chan error) {
+	id int,
+	idParent int,
+	useSbrp bool,
+	toHostChan chan DataPack,
+	clientListChan chan RelayConn,
+	errChan chan error) {
 	defer conn.Close()
 
 	// Struct containing any reference data for this connection
@@ -339,7 +333,7 @@ func handleClientConnection(conn net.Conn,
 	client.conn = &conn
 	client.op = sbrp.Add
 
-	clientListChan<-client
+	clientListChan <- client
 
 	defer func() {
 		client.op = sbrp.Remove
@@ -357,7 +351,7 @@ func handleClientConnection(conn net.Conn,
 		select {
 		case recvData := <-recvChan:
 			recvData.idSource = client.id
-			toHostChan<-recvData
+			toHostChan <- recvData
 		case err := <-recvErrorChan:
 			fmt.Println("Client Error -> ", err.Error())
 			errChan <- err

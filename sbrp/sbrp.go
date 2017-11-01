@@ -51,7 +51,6 @@ func (errorCode Error) ToStr() (errorName string) {
 	return
 }
 
-
 func (op Op) ToStr() (opName string) {
 	// temporary code until the list is finalized for prototype
 	opName = "Operation # " + strconv.Itoa(int(op))
