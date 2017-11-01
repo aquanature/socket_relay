@@ -31,6 +31,7 @@ type RelayConn struct {
 	name    string    // Human readable name that is configurable
 	useSbrp bool      // Tells the relay whether to use the "Stephane Bedard Relay Protocol" or SBRP with this host
 	id      int
+	idParent int
 	op      sbrp.Op
 }
 
@@ -45,6 +46,10 @@ type DataPack struct {
 // - Manage any exit channels and signals
 // - Manage the graceful exiting of all goroutines, especially the closing of all OS/System connections.
 func main() {
+	mainLoop()
+}
+
+func mainLoop() {
 	fmt.Println("Starting Relay")
 
 	// Map used for managing the various hosts connected to the relay
@@ -86,10 +91,12 @@ func main() {
 	fmt.Println("Exit with code " + strconv.Itoa(doneMsg) + " " + sbrpError.ToStr(doneMsg))
 }
 
-func exit(l net.Listener, hosts map[int]RelayConn) {
-	for _, host := range hosts {
-		conn := *host.conn
-		conn.Close()
+func exit(l net.Listener, relayConnList map[int]RelayConn) {
+	for _, relayConn := range relayConnList {
+		conn := *relayConn.conn
+		if conn != nil {
+			conn.Close()
+		}
 	}
 	l.Close()
 }
@@ -107,6 +114,7 @@ func waitForHostConnections(l net.Listener, exitChan chan int, connsModChan chan
 			// Use of error string comparison supported in Go 1.9, Go issue #39997
 			if strings.Contains(err.Error(), "use of closed") &&
 				strings.Contains(err.Error(), "network connection") {
+				fmt.Println("Host Listener on port " + strconv.Itoa(HOST_PORT) + " confirmed closed")
 				break
 			} else {
 				fmt.Errorf("error accepting an inbound connection, waiting for next connection")
@@ -131,7 +139,7 @@ func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn) {
 	// A copy of the Host data is kept in the main goroutine
 	var host RelayConn
 	host.useSbrp = USE_RELAY_PROTOCOL
-	host.id = id
+	host.id = id + time.Now().Nanosecond()
 	host.conn = &conn
 
 	defer func() {
@@ -158,7 +166,7 @@ func handleHostConnection(conn net.Conn, id int, connsModChan chan RelayConn) {
 			host.op = sbrp.Add
 			connsModChan <- host
 			// Start accepting client connections for this host
-			go waitForClientConnections(l, p, host.useSbrp, clientErrChan)
+			go waitForClientConnections(l, p, host.id, host.useSbrp, connsModChan, clientErrChan)
 			break
 		}
 	}
@@ -245,7 +253,7 @@ func connRead(conn net.Conn, recvChan chan DataPack, errChan chan error) {
 	}
 }
 
-func waitForClientConnections(l net.Listener, p int, useSbrp bool, errChan chan error) {
+func waitForClientConnections(l net.Listener, p int, idParent int, useSbrp bool, connsModChan chan RelayConn, errChan chan error) {
 	connCount := 0
 	for {
 		connCount++
@@ -265,7 +273,7 @@ func waitForClientConnections(l net.Listener, p int, useSbrp bool, errChan chan 
 		} else {
 			fmt.Println("Connection accepted, launching host handler.")
 			conn.SetReadDeadline(time.Now().Add(TIMEOUT_MINUTES * time.Minute))
-			go handleClientConnection(conn, connCount, useSbrp, errChan)
+			go handleClientConnection(conn, connCount, idParent, useSbrp, connsModChan, errChan)
 		}
 	}
 }
@@ -274,8 +282,21 @@ func waitForClientConnections(l net.Listener, p int, useSbrp bool, errChan chan 
 // Setting up a client listener on a port and exiting gracefully if it cannot create one
 // Receiving data from the Host
 // Sending data to the Host and exiting gracefully if the host is no longer connected
-func handleClientConnection(conn net.Conn, id int, useSbrp bool, errChan chan error) {
+func handleClientConnection(conn net.Conn, id int, idParent int, useSbrp bool, connsModChan chan RelayConn, errChan chan error) {
 	defer conn.Close()
+
+	// Struct containing any reference data for this connection
+	// A copy of the Host data is kept in the main goroutine
+	var client RelayConn
+	client.useSbrp = useSbrp
+	client.id = id
+	client.idParent = idParent
+	client.conn = &conn
+
+	defer func() {
+		client.op = sbrp.Remove
+		connsModChan <- client
+	}()
 
 	recvChan := make(chan DataPack, 10)
 	recvErrorChan := make(chan error)

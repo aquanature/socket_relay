@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -28,6 +29,7 @@ const (
 	Remove
 	Rename
 	ListConns
+	UseProtocol
 	Quit
 )
 
@@ -44,6 +46,13 @@ func HandleSbrpRequest(rawData []byte) (op Op, msg string, err error) {
 		op = Quit
 	case "LIST_CONNS":
 		op = ListConns
+	case "SWITCHSBRP":
+		op = UseProtocol
+		if strings.Contains(msg, "OFF") || strings.Contains(msg, "FALSE") {
+			msg = "FALSE"
+		} else {
+			msg = "TRUE"
+		}
 	default:
 		op = Unknown
 	}
