@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	Prefix = "SBRP 1.0 "
+	Prefix    = "SBRP 1.0 "
 	CmdLength = 10
 )
 
@@ -24,14 +24,39 @@ type Op int
 
 const (
 	Unknown Op = -1
-	Modify Op = 0
-	Add    Op = 0 + iota
+	Modify  Op = 0
+	Add     Op = 0 + iota
 	Remove
 	Rename
 	ListConns
 	UseProtocol
+	Loop
 	Quit
 )
+
+// Protocol error codes
+const (
+	Ok Error = 0 + iota
+	CannotListenForHost
+	CannotListenForClient
+	WritingToHost
+	BadlyFormattedSbrpMsg
+	CannotReceiveDataFromHost
+	ClientClosureError
+)
+
+func (errorCode Error) ToStr() (errorName string) {
+	// temporary code until the list is finalized for prototype
+	errorName = "TODO: will create name from error code " + strconv.Itoa(int(errorCode))
+	return
+}
+
+
+func (op Op) ToStr() (opName string) {
+	// temporary code until the list is finalized for prototype
+	opName = "Operation # " + strconv.Itoa(int(op))
+	return
+}
 
 func HandleSbrpRequest(rawData []byte) (op Op, msg string, err error) {
 	cmd := string(rawData[9:19])
@@ -59,11 +84,11 @@ func HandleSbrpRequest(rawData []byte) (op Op, msg string, err error) {
 	return
 }
 
-func ErrResp(conn net.Conn, errCode int, useSbrp bool, errMsg string) (err error) {
-	errorResp := Prefix + "ERROR_MESG " + strconv.Itoa(errCode) + " " + errMsg + "\r\n"
+func ErrResp(conn net.Conn, errCode Error, useSbrp bool, errMsg string) (err error) {
+	errorResp := Prefix + "ERROR_MESG " + errCode.ToStr() + " " + errMsg + "\r\n"
 	fmt.Errorf(errorResp)
 	if useSbrp && conn != nil {
-		_, err = conn.Write([]byte(errMsg))
+		_, err = conn.Write([]byte(errorResp))
 	}
 	return err
 }
