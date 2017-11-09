@@ -1,21 +1,29 @@
 package config
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"time"
+)
 
 type Cfg struct {
-	HostPort             int
-	TimeoutMinutes       time.Duration
-	ClientPortMin        int
-	ClientPortMax        int
-	UseRelayProtocol     bool
-	ReceiveBufferSize    int
-	ReceiveChanQueueSize int
+	HostPort             int           `json:"host_post"`
+	TimeoutMinutes       time.Duration `json:"timeout_minutes"`
+	ClientPortMin        int           `json:"client_port_min"`
+	ClientPortMax        int           `json:"client_port_max"`
+	UseRelayProtocol     bool          `json:"use_relay_protocol"`
+	ReceiveBufferSize    int           `json:"receive_buffer_size"`
+	ReceiveChanQueueSize int           `json:"receive_queue_size"`
 }
 
-func (c *Cfg) Init() (ok bool) {
-	ok = false //this is a load from file failure simulation
-	if !ok {
+func (c *Cfg) Init() {
+	f, err := ioutil.ReadFile("./config.json")
+	if err != nil {
+		fmt.Errorf("cannot find config.json, using coded defaults")
 		c.SetDefaults()
+	} else {
+		json.Unmarshal(f, &c)
 	}
 	return
 }

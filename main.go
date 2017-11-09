@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/aquanature/socket_relay/relay"
 )
 
@@ -16,7 +15,7 @@ func main() {
 	isMultiplexingServerAdapter := *flag.Bool("m", false, "launches the app as a multiplexing relay server adapter")
 	isEchoHost := *flag.Bool("e", false, "launches the app as an echo server")
 	isRelay := *flag.Bool("r", false, "launches the app as a relay")
-	desiredPort := *flag.Int("port", 0, "port the relay or server adpater listens on for new connections")
+	desiredPort := *flag.Int("port", 0, "port the relay or server adapter listens on for new connections")
 
 	if isSimpleServerAdapter {
 
@@ -24,9 +23,7 @@ func main() {
 
 	} else if isEchoHost {
 
-	} else {
+	} else if isRelay || true{
 		relay.MainLoop(desiredPort)
 	}
-
-	fmt.Print(isSimpleServerAdapter, isMultiplexingServerAdapter, isRelay, isEchoHost)
 }

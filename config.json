@@ -1,0 +1,9 @@
+{
+  "host_post":8080,
+  "timeout_minutes":3,
+  "client_port_min":8081,
+  "client_port_max":23000,
+  "use_relay_protocol":true,
+  "receive_buffer_size":1024,
+  "receive_queue_size":10
+}
